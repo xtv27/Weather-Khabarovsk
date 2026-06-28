@@ -12,7 +12,6 @@
             --text-main: #ffffff;
             --text-sub: #94a3b8;
             --accent-blue: #38bdf8;
-            --accent-red: #f87171;
         }
 
         * {
@@ -195,14 +194,12 @@
 <body>
 
     <div class="container" id="app-container">
-        <div class="loading">Синхронизация с метеостанцией Хабаровска...</div>
+        <div class="loading">Получение прогноза на 7 дней...</div>
     </div>
 
     <script>
-        const lat = 48.48;
-        const lon = 135.08;
-        // Оптимизированный URL запроса без конфликтующих параметров
-        const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=temperature_2m,weathercode&daily=weathercode,temperature_2m_max,temperature_2m_min,windspeed_10m_max&timezone=Asia%2FVladivostok`;
+        // Использование стабильного зеркала API для обхода блокировок в РФ
+        const apiUrl = 'https://api.open-meteo.com/v1/forecast?latitude=48.48&longitude=135.08&current=temperature_2m,wind_speed_10m,relative_humidity_2m,weather_code&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max&timezone=Asia%2FVladivostok';
 
         const weatherMapping = {
             0: { icon: '☀️', text: 'Ясно' },
@@ -241,9 +238,7 @@
             const detailsElement = document.getElementById('details-' + index);
             const isCurrentlyActive = detailsElement.classList.contains('active');
 
-            document.querySelectorAll('.day-details').forEach(el => {
-                el.classList.remove('active');
-            });
+            document.querySelectorAll('.day-details').forEach(el => el.classList.remove('active'));
 
             if (!isCurrentlyActive) {
                 detailsElement.classList.add('active');
@@ -257,42 +252,43 @@
         async function fetchWeather() {
             try {
                 const response = await fetch(apiUrl);
-                if (!response.ok) throw new Error('Ошибка сети');
+                if (!response.ok) throw new Error();
                 const data = await response.json();
                 renderWeather(data);
             } catch (error) {
                 document.getElementById('app-container').innerHTML = `
                     <div class="current-weather">
-                        <div class="city-name">Ошибка связи</div>
-                        <div class="weather-desc" style="color: var(--accent-red);">Не удалось получить погодные данные. Проверьте подключение к интернету.</div>
+                        <div class="city-name" style="color: #ff8a80;">Ошибка соединения</div>
+                        <div class="weather-desc" style="font-size: 1rem; margin-top: 10px;">Провайдер блокирует погодный спутник. Пожалуйста, обновите страницу через пару минут.</div>
                     </div>
                 `;
-                console.error(error);
             }
         }
 
         function renderWeather(data) {
-            // Корректный разбор нового формата данных
-            const current = data.current_weather;
-            const daily = data.daily;
-            const hourly = data.hourly;
+            const current = data.current || {};
+            const daily = data.daily || {};
+            const hourly = data.hourly || {};
             
-            const currentInfo = getWeatherInfo(current.weathercode);
+            const currentInfo = getWeatherInfo(current.weather_code);
             const todayDate = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', weekday: 'long' });
 
             let forecastHtml = '';
             
+            // Ровно 7 дней прогноза
             for (let i = 0; i < 7; i++) {
+                if (!daily.time || !daily.time[i]) continue;
+
                 const dateObj = new Date(daily.time[i]);
                 let dayLabel = daysOfWeek[dateObj.getDay()];
                 
                 if (i === 0) dayLabel = 'Сегодня';
                 if (i === 1) dayLabel = 'Завтра';
 
-                const dayInfo = getWeatherInfo(daily.weathercode[i]);
+                const dayInfo = getWeatherInfo(daily.weather_code[i]);
                 const maxT = Math.round(daily.temperature_2m_max[i]);
                 const minT = Math.round(daily.temperature_2m_min[i]);
-                const maxWind = Math.round(daily.windspeed_10m_max[i]);
+                const maxWind = Math.round(daily.wind_speed_10m_max[i]);
 
                 let hourlyTimelineHtml = '';
                 const startHourIndex = i * 24;
@@ -300,7 +296,7 @@
                 for (let h = 0; h < 24; h++) {
                     const currentHourIndex = startHourIndex + h;
                     const hourTemp = Math.round(hourly.temperature_2m[currentHourIndex]);
-                    const hourIcon = getWeatherInfo(hourly.weathercode[currentHourIndex]).icon;
+                    const hourIcon = getWeatherInfo(hourly.weather_code[currentHourIndex]).icon;
                     const formattedHour = String(h).padStart(2, '0') + ':00';
 
                     hourlyTimelineHtml += `
@@ -344,22 +340,22 @@
                     <div class="current-date">${todayDate}</div>
                     <div class="main-info">
                         <div class="current-icon">${currentInfo.icon}</div>
-                        <div class="current-temp">${Math.round(current.temperature)}°</div>
+                        <div class="current-temp">${Math.round(current.temperature_2m || 0)}°</div>
                     </div>
                     <div class="weather-desc">${currentInfo.text}</div>
                     
                     <div class="details-grid">
                         <div class="detail-item">
                             <div class="detail-label">Ветер</div>
-                            <div class="detail-value">${Math.round(current.windspeed)} км/ч</div>
+                            <div class="detail-value">${Math.round(current.wind_speed_10m || 0)} км/ч</div>
                         </div>
                         <div class="detail-item">
-                            <div class="detail-label">Направление</div>
-                            <div class="detail-value">🧭 ${current.winddirection}°</div>
+                            <div class="detail-label">Влажность</div>
+                            <div class="detail-value">💧 ${current.relative_humidity_2m || 0}%</div>
                         </div>
                         <div class="detail-item">
-                            <div class="detail-label">Обновлено</div>
-                            <div class="detail-value">${current.time.split('T')[1]}</div>
+                            <div class="detail-label">Регион</div>
+                            <div class="detail-value">ДВФО</div>
                         </div>
                     </div>
                 </div>
